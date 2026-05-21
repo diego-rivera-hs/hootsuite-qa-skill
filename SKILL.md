@@ -36,7 +36,16 @@ Six modes, same discovery base (branch diff vs master), different output.
 
 ## Disambiguation
 
-When invoked without a mode (e.g. `qa-testing`, `qa`, "QA for this ticket"), show this table and ask. Do NOT run discovery yet.
+When invoked without a mode (e.g. `qa-testing`, `qa`, "QA for this ticket"), show this decision tree, then the table, then ask. Do NOT run discovery yet.
+
+```
+Quick chat review              → QA-scenarios
+Repo-level QA docs             → QA-notes
+Hand-off to another dev        → QA-guide
+Importable Postman collection  → QA-postman
+Other tooling (curl/.http/…)   → QA-requests
+PR description body            → QA-description
+```
 
 | Mode | Output | When to use |
 |---|---|---|
@@ -119,6 +128,20 @@ Cover at minimum:
 
 **Derive scenarios directly from the diff.** Don't invent scenarios for code not touched. If you spot a plausible edge case not explicitly in the diff, add it as `(optional)`.
 
+#### Priority labels
+
+Tag every scenario with one of:
+
+- **Critical** — data loss, security, breaking contract change. Must pass before merge.
+- **High** — core business logic of the change (happy paths, DL flips, main negative validation).
+- **Medium** — edge cases explicitly in the diff (pagination, ordering, partial-state).
+- **Low** — optional/exploratory cases not in the diff but worth checking.
+
+Priority drives mode filtering:
+- `QA-guide` includes **Critical + High only** (5–7 bullets).
+- `QA-scenarios` / `QA-notes` / `QA-postman` / `QA-requests` include **all four**, label visible per scenario.
+- `QA-description` does not list scenarios (priority is irrelevant there).
+
 DL present → split into **Phase 1 — DL OFF** / **Phase 2 — DL ON** with flip instruction between. No DL → flat list.
 
 #### Pagination (cursor + filters are mutually exclusive)
@@ -147,10 +170,13 @@ Derive scenarios strictly from the diff. Each scenario: **5–6 word label**, UR
 
 **Phase 1 — DL OFF**
 
-1. **<5–6 word label>**
+1. **[Critical] <5–6 word label>**
    - `<METHOD> {{localhost}}/<path>`
    - body: `<json>` (omit if none)
    - expected: `<status>` + `<key signal>`
+
+2. **[High] <label>**
+   - ...
 
 **Phase 2 — DL ON** (restart after flip)
 
@@ -181,7 +207,7 @@ Like `QA-scenarios` but adds a one-sentence "why" per scenario and DB/side-effec
 
 ## Phase 1 — DL OFF
 
-### 1. <Short label>
+### 1. [Critical] <Short label>
 
 <One sentence: what this exercises.>
 
@@ -210,9 +236,9 @@ No DL → single section.
 
 Destination: same picker. File: `<TICKET>-QA-guide.md`.
 
-**Vital-only, 5–7 bullets max.** Pick scenarios that prove the contract change works. Skip routine validations (400 on non-numeric id, 401 on missing auth, generic 404) — unit tests cover those.
+**Vital-only, 5–7 bullets max — only `Critical` and `High` priority scenarios.** Skip Medium/Low (those live in `QA-scenarios`/`QA-postman`). Skip routine validations (400 on non-numeric id, 401 on missing auth, generic 404) — unit tests cover those.
 
-Each bullet: **label** — `METHOD path?params` — `status` + key signal — `_Postman item N._`
+Each bullet: **[priority] label** — `METHOD path?params` — `status` + key signal — `_Postman item N._`
 
 No body (unless body is the point). No URL host in bullet text. No sign-off section.
 
@@ -227,8 +253,8 @@ Template (no DL):
 
 ---
 
-- [ ] **1. <label>** — `GET {{localhost}}/<path>?<param>={{val}}` — `<status>` + <key signal>. _Postman item 1._
-- [ ] **2. <label>** — `POST {{localhost}}/<path>` — `<status>` + <key signal>. _Postman item 2._
+- [ ] **1. [Critical] <label>** — `GET {{localhost}}/<path>?<param>={{val}}` — `<status>` + <key signal>. _Postman item 1._
+- [ ] **2. [High] <label>** — `POST {{localhost}}/<path>` — `<status>` + <key signal>. _Postman item 2._
 ```
 
 Template (with DL):
@@ -240,11 +266,11 @@ Template (with DL):
 
 ## Phase 1 — DL OFF
 
-- [ ] **1. <label>** — `<METHOD> {{localhost}}/<path>` — `<status>` + <signal>. _Postman item N._
+- [ ] **1. [Critical] <label>** — `<METHOD> {{localhost}}/<path>` — `<status>` + <signal>. _Postman item N._
 
 ## Phase 2 — DL ON
 
-- [ ] **2. <label>** — `<METHOD> {{localhost}}/<path>` — `<status>` + <signal>. _Postman item N._
+- [ ] **2. [High] <label>** — `<METHOD> {{localhost}}/<path>` — `<status>` + <signal>. _Postman item N._
 ```
 
 Chain across two items → `_Postman items 4 → 5._`
@@ -292,7 +318,7 @@ Default: **A**. Bake chosen host into every item. Don't mix hosts.
 - `info.name`: `"<resource> Tests (<TICKET>)"`.
 - `info.description`: every env var, REQUIRED vs AUTO, auth notes.
 - `info.schema`: `"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"` — **inside `info`**, not top-level.
-- `item`: flat list. Names: `"1. Happy - <case>"` / `"8. Error - <case> -> <status> <ErrorName> (<code>)"`.
+- `item`: flat list. Names include priority: `"1. [Critical] Happy - <case>"` / `"8. [High] Error - <case> -> <status> <ErrorName> (<code>)"`.
 
 Top-level skeleton:
 
@@ -485,7 +511,25 @@ print(f"OK — {len(d['item'])} items, {len(vars_)} vars, all refs resolved, aut
 PY
 ```
 
-After writing + validating, tell dev: file path, vars to fill (Current Value for secrets), auth setup steps, DL flag state.
+After writing + validating, report back to the dev using this exact shape:
+
+```markdown
+## Postman collection ready
+
+**File**: `[path/to/<TICKET>.postman_collection.json]`
+
+**Variables to fill** (Current Value):
+- `[basicAuth]` — [base64(email:password)]
+- `[<requiredVar>]` — [<what to put>]
+
+**Auth strategy**: [Manual JWT | Auto-mint]
+**Default host**: `[{{localhost}} | {{staginghost}} | {{devhost}}]`
+**DL flag**: [name + expected state, or "none"]
+
+[N] items, [P critical / Q high / R medium / S low].
+```
+
+No preamble, no workflow recap.
 
 ---
 
@@ -516,13 +560,13 @@ File names: curl → `<TICKET>-qa-curls.sh`; `.http` → `<TICKET>-qa.http`; HTT
 ### Step 3 — Render
 
 One block per scenario. Each block:
-- Heading/comment: number + 5–6 word label.
+- Heading/comment: number + `[priority]` + 5–6 word label.
 - Full request (method, URL, headers, body) in chosen format.
 - Expected comment: status + key signal.
 
 `curl` template:
 ```bash
-# 1. Happy - admin baseline
+# 1. [Critical] Happy - admin baseline
 curl -sS -X GET "$LOCALHOST/v2/teams?organizationId=$ORG_ID" \
   -H "Accept: application/json" \
   -H "Jwt-Identity: $JWT"
@@ -531,7 +575,7 @@ curl -sS -X GET "$LOCALHOST/v2/teams?organizationId=$ORG_ID" \
 
 `.http` template:
 ```http
-### 1. Happy - admin baseline
+### 1. [Critical] Happy - admin baseline
 GET {{localhost}}/v2/teams?organizationId={{organizationId}}
 Accept: application/json
 Jwt-Identity: {{Jwt-Identity}}
@@ -541,7 +585,7 @@ Jwt-Identity: {{Jwt-Identity}}
 
 **URL + body (option B)** — output in chat, one block per scenario:
 ```
-1. Happy - admin baseline
+1. [Critical] Happy - admin baseline
 GET {{localhost}}/v2/teams?organizationId={{organizationId}}
 Headers: Jwt-Identity: {{Jwt-Identity}}, X-As-Member-Id: {{memberId}}
 Expected: 200 + data array.
@@ -549,7 +593,19 @@ Expected: 200 + data array.
 
 ### Step 4 — Tell dev
 
-File path (or "output above" if chat), env vars to define, DL flag state.
+```markdown
+## Requests ready
+
+**File**: `[path]` _(or "output above" if URL+body in chat)_
+
+**Env vars to define**:
+- `[$VAR1]` — [what it is]
+- `[$VAR2]` — [what it is]
+
+**DL flag**: [name + expected state, or "none"]
+
+[N] scenarios: [P critical / Q high / R medium / S low].
+```
 
 ---
 

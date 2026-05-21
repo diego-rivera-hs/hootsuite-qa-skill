@@ -18,7 +18,16 @@ model: claude-sonnet-4-5
 
 ## Disambiguation — when no mode given
 
-Render this table, ask "Which one do you want?", wait for answer. **Do not run discovery yet.**
+Render this decision tree, then the table, then ask "Which one do you want?". **Do not run discovery yet.**
+
+```
+Quick chat review              → QA-scenarios
+Repo-level QA docs             → QA-notes
+Hand-off to another dev        → QA-guide
+Importable Postman collection  → QA-postman
+Other tooling (curl/.http/…)   → QA-requests
+PR description body            → QA-description
+```
 
 | Mode | Output | When to use |
 |---|---|---|
@@ -56,6 +65,14 @@ Find router prefix, port (from config, not assumed `8080`), auth prefix, error s
 
 ### 4. Scenarios
 Derive strictly from the diff. Cover: happy path, DL gating (OFF + ON), negative validation, DB persistence, delete. Edge cases not in diff → add as `(optional)`. DL present → Phase 1 / Phase 2 split.
+
+**Tag each scenario with priority:**
+- **Critical** — data loss, security, breaking contract change.
+- **High** — core business logic of the change.
+- **Medium** — edge cases explicitly in the diff.
+- **Low** — optional/exploratory cases.
+
+`QA-guide` includes Critical + High only. All other modes show all four with the label visible per scenario.
 
 ---
 
@@ -99,8 +116,20 @@ Ticket + what changed (no changelog, version bumps, codegen churn) + Behavior be
 
 ## Chat output
 
-Minimal noise. After mode is selected and artifacts are ready:
-- File path + list of vars to fill (Current Value for secrets).
-- Auth setup steps (if Postman).
-- DL flag state reminder (if DL present).
-- No preamble, no workflow recap.
+Minimal noise. After mode is selected and artifacts are ready, use this shape (adapt fields to the mode):
+
+```markdown
+## [Artifact type] ready
+
+**File**: `[path]` _(omit for chat-only modes)_
+
+**Variables to fill** (Current Value): _(omit if none)_
+- `[var1]` — [what it is]
+
+**Auth strategy**: [Manual JWT | Auto-mint] _(QA-postman only)_
+**DL flag**: [name + expected state, or "none"]
+
+[N] scenarios: [P critical / Q high / R medium / S low].
+```
+
+No preamble, no workflow recap.

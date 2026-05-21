@@ -82,7 +82,7 @@ In practice: shorter prompts in, sharper artifacts out.
 
 | Repo | Type | Auth |
 |---|---|---|
-| `service-organization` | TOPS (Scala/Play) | Per `application.conf` |
+| `service-organization` | TOPS (Scala/Play) | Detected from the service config |
 | `organization-management` | BFF (Go/chi) | Aperture `Jwt-Identity` — the skill asks for your `basicAuth` (base64 of `email:password`) and walks you through setup |
 
 ---
