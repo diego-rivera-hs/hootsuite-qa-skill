@@ -1,0 +1,106 @@
+---
+Generate QA artifacts for a ticket entering QA handoff. Six modes from the branch diff vs master: QA-scenarios (chat list), QA-notes (.md), QA-guide (.md checklist), QA-postman (.postman_collection.json), QA-requests (curl / URL-for-Postman / .http), QA-description (PR body).
+name: qa-testing
+model: claude-sonnet-4-5
+---
+
+# QA Testing
+
+## Purpose and boundaries
+
+**In scope:** Derive QA artifacts from the current branch diff (`master...HEAD`). Six modes, same discovery base, different output format and depth.
+
+**Out of scope:** Running tests, writing unit tests, implementing code, filing Jira tickets.
+
+**Success:** The dev receives ready-to-use QA artifacts derived from the actual diff — no invented endpoints, no padding, field names verbatim from source.
+
+---
+
+## Disambiguation — when no mode given
+
+Render this table, ask "Which one do you want?", wait for answer. **Do not run discovery yet.**
+
+| Mode | Output | When to use |
+|---|---|---|
+| `QA-scenarios` | Numbered list in chat | See scenarios without a file |
+| `QA-notes` | `.md` with explanations + evidence slots | QA docs that live in the repo |
+| `QA-guide` | `.md` vital-only checklist (5–7 items) | Hand-off so another dev runs QA quickly |
+| `QA-postman` | `.postman_collection.json` with `pm.test` | You have Postman and want an importable collection |
+| `QA-requests` | curl / URL-for-Postman / `.http` / HTTPie | Other tooling or a quick paste |
+| `QA-description` | Paste-ready PR markdown | Short PR text — not scenario checklists |
+
+---
+
+## Workflow
+
+Full details in `SKILL.md` (install path: `~/.cursor/skills/qa-testing/SKILL.md`). Summary:
+
+### 1. Ticket key
+`git rev-parse --abbrev-ref HEAD` → extract `TOPS-1234`. If none, ask.
+
+### 2. Diff
+```bash
+BASE=$(git merge-base origin/master HEAD 2>/dev/null || git merge-base origin/main HEAD)
+git diff "$BASE"...HEAD --stat && git diff "$BASE"...HEAD
+```
+
+### 3. Read source
+Before writing any URL/body/field — read the model and route files from the diff. Match field names verbatim.
+
+#### Detect service type
+- **`service-organization`** → TOPS (Scala/Play, direct).
+- **`organization-management`** → BFF (Go/chi, aperture `Jwt-Identity` + `X-As-Member-Id`).
+
+#### Discover real URL
+Find router prefix, port (from config, not assumed `8080`), auth prefix, error shape, status code mapping, auth headers. Full path in every artifact.
+
+### 4. Scenarios
+Derive strictly from the diff. Cover: happy path, DL gating (OFF + ON), negative validation, DB persistence, delete. Edge cases not in diff → add as `(optional)`. DL present → Phase 1 / Phase 2 split.
+
+---
+
+## Mode outputs
+
+### `QA-scenarios` (chat)
+Pre-requisites block + numbered list. Each item: 5–6 word label, URL, body (if any), one-line expected.
+
+### `QA-notes` (.md)
+Destination: `docs/` → `.idea/tickets/` → ask. File: `<TICKET>-QA-notes.md`.
+One sentence "why" per scenario + DB/side-effect verification. No padding.
+
+### `QA-guide` (.md)
+Destination: same picker. File: `<TICKET>-QA-guide.md`.
+5–7 bullets max. Format: **label** — `METHOD path` — `status` + key signal — `_Postman item N._`
+No body, no URL host. Skip: 400 on bad type, 401 missing auth, generic 404 (unit tests cover those).
+
+### `QA-postman` (.postman_collection.json)
+
+**For BFF (`organization-management`):** Ask auth strategy first (Manual JWT / Auto-mint). Explain:
+> `basicAuth` = `base64(email:password)`. Generate: `printf '%s' 'you@hootsuite.com:pass' | base64`. Paste as Current Value.
+
+Ask default host (localhost / staginghost / devhost). All items use the same host — never mix.
+
+Validate before reporting ready (run `tools/validate-postman.py <path>`). Full validation script + item structure in `SKILL.md`.
+
+**Tests that don't belong:** "Missing X-As-Member-Id → 401" (act-as, not auth), "Wrong basic auth → 401" (tests aperture, not the service). Empty-body 401 → assert status only, no `json().code`.
+
+### `QA-requests`
+Ask format:
+- **A) curl** — bash one-liners
+- **B) URL + body** — paste into Postman manually (no collection file)
+- **C) .http** — JetBrains / VS Code REST Client
+- **D) HTTPie**
+- **E) Other** — paste a sample and I'll mirror it
+
+### `QA-description` (chat, English always)
+Ticket + what changed (no changelog, version bumps, codegen churn) + Behavior before/after if user-visible + Risks if concrete. Target ~10–20 lines. No scenario lists.
+
+---
+
+## Chat output
+
+Minimal noise. After mode is selected and artifacts are ready:
+- File path + list of vars to fill (Current Value for secrets).
+- Auth setup steps (if Postman).
+- DL flag state reminder (if DL present).
+- No preamble, no workflow recap.
